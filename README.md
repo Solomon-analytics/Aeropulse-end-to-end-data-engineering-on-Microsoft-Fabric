@@ -9,7 +9,6 @@ End-to-end data engineering on Microsoft Fabric. Medallion lakehouse, dimensiona
 
 Source data is the US Bureau of Transportation Statistics **Airline On-Time Performance Data**, specifically the *Reporting Carrier On-Time Performance (1987-present)* table, with the `L_AIRPORT` and `L_UNIQUE_CARRIERS` lookup tables as reference sources. It arrives monthly, messy, and inconsistent: missing delay-cause codes, cancelled flights that still carry departure times, airport and carrier reference data that shifts underneath you. Reprocessing it by hand does not scale, and silent failures are worse than loud ones because people keep trusting numbers that have quietly stopped being right.
 
-This repository is the second of two projects. [Project 1](#project-1) built a working medallion pipeline in one workspace. This one takes it to something that could run in a team: separate environments, access control, CI/CD, orchestration and monitoring.
 
 <!-- Rename docs/image to docs/architecture-overview.png, then uncomment:
 ![Aeropulse architecture](docs/architecture-overview.png)
