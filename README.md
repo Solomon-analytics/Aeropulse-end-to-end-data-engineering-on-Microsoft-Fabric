@@ -364,7 +364,6 @@ Two test identities in Microsoft Entra ID, created with no directory role and no
 | User | Purpose |
 |---|---|
 | `aeropulse-bi-analyst` | Analyst persona used to test item sharing, workspace roles and granular SQL security |
-| `aeropulse-operation-analyst` | Second identity for comparison testing |
 
 Access was then exercised at every layer Fabric exposes, from tenant down to individual column and row.
 
