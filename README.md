@@ -410,8 +410,13 @@ Workspace access, Member
 | Read all Apache Spark and subscribe to events | Reads delta tables through Spark notebooks, grants raw file access, enables event subscriptions and shortcuts |
 | Execute Apache Spark jobs | Does not enable querying. Appears to exist for scheduling jobs rather than reading data |
 
+Read all SQL endpoint data
 ![Read all SQL endpoint data](docs/read-all-sql-endpoint-data.png)
+
+Read all Apache Spark and subscribe to events
 ![Read all Apache Spark and subscribe to events](docs/read-all-apache-spark-and-subscribe-to-events.png)
+
+Execute Apache Spark jobs on the lakehouse
 ![Execute Apache Spark jobs on the lakehouse](docs/execute-apache-spark-Jobs-on-akehouse.png)
 
 ### Object-level security
