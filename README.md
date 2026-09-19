@@ -378,7 +378,9 @@ Access was then exercised at every layer Fabric exposes, from tenant down to ind
 
 Fabric Administrator is assigned as an Entra ID directory role. Capacity Administrator is assigned either in the Fabric admin portal or on the capacity resource in Azure.
 
+Capacity administrator access
 ![Capacity administrator access](docs/capacity-admin-access.png)
+Domain access management
 ![Domain access management](docs/domain-access-management.png)
 
 ### Workspace roles, observed behaviour
@@ -389,8 +391,15 @@ Fabric Administrator is assigned as an Entra ID directory role. Capacity Adminis
 | Contributor | Query the SQL endpoint, run notebooks, read tables and files, run the orchestration pipeline. Could not add other users |
 | Member | Everything Contributor can do, plus adding other users |
 
+Workspace access, view
+![Workspace access, view](docs/workspace-level-access-view.png)
+
+Workspace access, Contributor
 ![Workspace access, Contributor](docs/workspace-level-access-contributor.png)
+
+Workspace access, Member
 ![Workspace access, Member](docs/workspace-level-access-member.png)
+
 
 ### Item-level sharing on the gold lakehouse
 
