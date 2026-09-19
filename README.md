@@ -432,7 +432,10 @@ REVOKE SELECT ON <schema>.<table> TO [user];
 
 Sharing the Warehouse with no additional item permissions left the user unable to read any table. Access appeared only as each `GRANT` was issued.
 
+Warehouse access management query
 ![Warehouse access management query](docs/query-for-warehouse-access-management.png)
+
+Object-level security granted
 ![Object-level security granted](docs/grant-ols.png)
 
 ### Column-level security
@@ -451,8 +454,13 @@ Msg 230: The SELECT permission was denied on the column 'salary' of the object '
 
 `REVOKE` on `department` then produced the same error for that column, confirming that revoking clears a permission rather than granting or denying one: the column returned to its default state, which is no access.
 
+Column-level security, salary excluded
 ![Column-level security, salary excluded](docs/grant-cls-without-salary.png)
+
+Column-level security, salary included
 ![Column-level security, salary included](docs/grant-cls-with-salary.png)
+
+Revoking access to the department column
 ![Revoking access to the department column](docs/revoke-access-to-column-department.png)
 
 ### Row-level security
@@ -479,7 +487,10 @@ WITH (STATE = ON);
 
 The mapping table tied the analyst to the north region. Querying `sales` as that user returned only north rows, with no filter in the query itself.
 
+Row-level security policy
 ![Row-level security policy](docs/rls-north.png)
+
+Sales table filtered to the north region
 ![Sales table filtered to the north region](docs/sales-rls-north.png)
 
 ### Dynamic data masking
@@ -500,11 +511,22 @@ GRANT  UNMASK ON <schema>.<table> TO [user];
 REVOKE UNMASK ON <schema>.<table> TO [user];
 ```
 
+Dynamic data masking query
 ![Dynamic data masking query](docs/dynamic-data-masking-query.png)
+
+Masked output as a user without elevated privilege
 ![Masked output as a user without elevated privilege](docs/dynamic-masking-user-without-elevated-priviledge.png)
+
+Altering a mask on an existing column
 ![Altering a mask on an existing column](docs/altering-dynamic-masking.png)
+
+Dropping a mask
 ![Dropping a mask](docs/drop-dynamic-masking.png)
+
+Granting UNMASK
 ![Granting UNMASK](docs/unmasking-dynamic%20masking.png)
+
+Revoking UNMASK
 ![Revoking UNMASK](docs/revoke-dynamic-masking.png)
 
 **Testing method.** Every permission was verified by signing in as the test user and running the same query, rather than by inspecting the configuration. The admin account sees unmasked values throughout, so masking can only be confirmed from a non-privileged session. The `random()` function returned a different value on each execution, which is visible across repeated runs.
