@@ -9,6 +9,8 @@ End-to-end data engineering on Microsoft Fabric. Medallion lakehouse, dimensiona
 
 Source data is the US Bureau of Transportation Statistics **Airline On-Time Performance Data**, specifically the *Reporting Carrier On-Time Performance (1987-present)* table, with the `L_AIRPORT` and `L_UNIQUE_CARRIERS` lookup tables as reference sources. It arrives monthly, messy, and inconsistent: missing delay-cause codes, cancelled flights that still carry departure times, airport and carrier reference data that shifts underneath you. Reprocessing it by hand does not scale, and silent failures are worse than loud ones because people keep trusting numbers that have quietly stopped being right.
 
+This repository is the second of two projects. [Project 1](#project-1) built a working medallion pipeline in one workspace. This one takes it to something that could run in a team: separate environments, access control, CI/CD, orchestration and monitoring.
+
 <!-- Rename docs/image to docs/architecture-overview.png, then uncomment:
 ![Aeropulse architecture](docs/architecture-overview.png)
 -->
@@ -274,32 +276,38 @@ A Fabric Warehouse, `aeropulse_wh`, sitting on top of the Gold lakehouse and ser
 
 **Base tables:** `dim_date`, `dim_origin_airport`, `dim_destination_airport`, `dim_carrier`, `fact_flight`.
 
-**Analytics objects, and the business question each answers:**
+**Analytics objects, and the business question each answers.** Every object is one file, numbered by the order it has to be created in.
 
 | Object | Type | Business question |
 |---|---|---|
-| `vw_daily_flight_performance` | View | How many flights ran on a given day, what share arrived on time, and which origin airports performed worst |
-| `vw_carrier_monthly_otp` | View | How each carrier is tracking month on month against an 80% on-time target, and how they rank against each other |
-| `vw_route_performance` | View | Which routes are consistently late once volume is taken into account |
-| `vw_cancellation_analysis` | View | What is actually driving cancellations, by carrier, airport and month |
-| `usp_carrier_performance_summary` | Stored procedure | How a given carrier performed over any date range, and whether delay accumulates through the day |
-| `usp_refresh_monthly_summary` | Stored procedure | Rebuilds the pre-aggregated monthly carrier summary for one batch |
-| `usp_load_warehouse_from_gold` | Stored procedure | Reloads every Warehouse table from Gold |
-| `fn_departure_time_band` | Scalar function | Which part of the day a flight departed in |
-| `fn_flights_in_range` | Inline table-valued function | A joinable flight set for a given date range |
+| [`usp_load_warehouse_from_gold`](warehouse-analytics-query/02_usp_load_warehouse_from_gold.sql) | Stored procedure | Reloads every Warehouse table from Gold |
+| [`fn_departure_time_band`](warehouse-analytics-query/03_fn_departure_time_band.sql) | Scalar function | Which part of the day a flight departed in |
+| [`fn_flights_in_range`](warehouse-analytics-query/04_fn_flights_in_range.sql) | Inline table-valued function | A joinable flight set for a given date range |
+| [`vw_daily_flight_performance`](warehouse-analytics-query/05_vw_daily_flight_performance.sql) | View | How many flights ran on a given day, what share arrived on time, and which origin airports performed worst |
+| [`vw_carrier_monthly_otp`](warehouse-analytics-query/06_vw_carrier_monthly_otp.sql) | View | How each carrier is tracking month on month against an 80% on-time target, and how they rank against each other |
+| [`vw_route_performance`](warehouse-analytics-query/07_vw_route_performance.sql) | View | Which routes are consistently late once volume is taken into account |
+| [`vw_cancellation_analysis`](warehouse-analytics-query/08_vw_cancellation_analysis.sql) | View | What is actually driving cancellations, by carrier, airport and month |
+| [`monthly_carrier_summary`](warehouse-analytics-query/09_monthly_carrier_summary.sql) | Table | Pre-aggregated monthly carrier figures, so the common question does not rescan the fact table |
+| [`usp_refresh_monthly_summary`](warehouse-analytics-query/10_usp_refresh_monthly_summary.sql) | Stored procedure | Rebuilds that summary for one batch |
+| [`usp_carrier_performance_summary`](warehouse-analytics-query/11_usp_carrier_performance_summary.sql) | Stored procedure | How a given carrier performed over any date range, and whether delay accumulates through the day |
 
 ### How it was built
 
-**Build scripts, numbered by run order.** The order is not arbitrary: functions must exist before the views and procedures that call them.
+**One object per file, numbered by run order.** The order is not decorative. Functions must exist before the views and procedures that call them, and the summary table before the procedure that refreshes it. Running the folder top to bottom builds the Warehouse from nothing.
 
-| Script | Creates |
+| File | Creates |
 |---|---|
-| `01_create_schema_and_tables.sql` | `analytics` schema, five base tables in `dbo` |
-| `02_create_and_load_stored_proc.sql` | `usp_load_warehouse_from_gold`, then runs it |
-| `03_create_functions.sql` | Both functions |
-| `04_create_views.sql` | Four analytics views |
-| `05_create_summary_table_and_refresh.sql` | `monthly_carrier_summary` and its refresh procedure |
-| `06_create_reporting_stored_proc.sql` | `usp_carrier_performance_summary` |
+| [`01_create_schema_and_tables.sql`](warehouse-analytics-query/01_create_schema_and_tables.sql) | `analytics` schema and the five base tables in `dbo` |
+| [`02_usp_load_warehouse_from_gold.sql`](warehouse-analytics-query/02_usp_load_warehouse_from_gold.sql) | The load procedure, then runs it |
+| [`03_fn_departure_time_band.sql`](warehouse-analytics-query/03_fn_departure_time_band.sql) | Scalar function, needed by the views below |
+| [`04_fn_flights_in_range.sql`](warehouse-analytics-query/04_fn_flights_in_range.sql) | Inline table-valued function |
+| [`05_vw_daily_flight_performance.sql`](warehouse-analytics-query/05_vw_daily_flight_performance.sql) | Daily performance view |
+| [`06_vw_carrier_monthly_otp.sql`](warehouse-analytics-query/06_vw_carrier_monthly_otp.sql) | Carrier on-time tracking view |
+| [`07_vw_route_performance.sql`](warehouse-analytics-query/07_vw_route_performance.sql) | Route reliability view |
+| [`08_vw_cancellation_analysis.sql`](warehouse-analytics-query/08_vw_cancellation_analysis.sql) | Cancellation driver view |
+| [`09_monthly_carrier_summary.sql`](warehouse-analytics-query/09_monthly_carrier_summary.sql) | Pre-aggregated summary table |
+| [`10_usp_refresh_monthly_summary.sql`](warehouse-analytics-query/10_usp_refresh_monthly_summary.sql) | Summary refresh procedure |
+| [`11_usp_carrier_performance_summary.sql`](warehouse-analytics-query/11_usp_carrier_performance_summary.sql) | Parameterised carrier reporting procedure |
 
 **Tables are created with explicit DDL** rather than CTAS, and loaded with TRUNCATE and INSERT. CTAS drops and recreates a table on every reload, taking any GRANT, RLS policy or masking rule with it. Defining tables once and reloading their contents means the security objects added in stage 9 survive every refresh, which is why `cancellation_code` was added by `ALTER TABLE` rather than a rebuild.
 
@@ -324,6 +332,8 @@ A view takes no parameters, so "how did this carrier do between these two dates"
 | Scalar function | Yes | In expressions | No |
 
 Splitting `dbo` from `analytics` sets up least privilege: the next stage grants on `analytics` and withholds `dbo`, so consumers reach the data only through governed views and never the raw fact table. Object-level security falls out of the structure rather than being retrofitted onto a flat schema.
+
+📁 [`warehouse-analytics-query/`](warehouse-analytics-query/)
 
 </details>
 
@@ -598,17 +608,23 @@ Two things came out of this. Any step that exists only as something a person rem
 ## Repository layout
 
 ```
-adls-to-landing/          config, helper, three ingestion notebooks
-landing-to-bronze/        config, helper, three landing to bronze notebooks
-bronze-to-silver/         config, helper, profiling, three bronze to silver notebooks
-silver-to-gold/           config, helper, four dimensions, one fact
-orchestration-control/    control table plus four state transition notebooks
-docs/                     screenshots and diagrams
+adls-to-landing/            config, helper, three ingestion notebooks
+landing-to-bronze/          config, helper, three landing to bronze notebooks
+bronze-to-silver/           config, helper, profiling, three bronze to silver notebooks
+silver-to-gold/             config, helper, four dimensions, one fact
+orchestration-control/      control table plus four state transition notebooks
+warehouse-analytics-query/  eleven T-SQL files, one object each, numbered by run order
+docs/                       screenshots and diagrams
 LICENSE
 README.md
 ```
 
-Folder names mirror the medallion hops, so the shape of the pipeline is visible from the tree without reading any code.
+Folder names mirror the medallion hops, so the shape of the pipeline is visible from the tree without reading any code. Inside `warehouse-analytics-query/` the numbers are the dependency order, not a filing convention: functions before the views that call them, the summary table before the procedure that refreshes it.
+
+---
+
+
+
 
 ---
 
