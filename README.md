@@ -1,8 +1,14 @@
+# Aeropulse-end-to-end-data-engineering-on-Microsoft-Fabric
+End-to-end data engineering on Microsoft Fabric. Medallion lakehouse, dimensional warehouse, control-table orchestration with automated batch recovery, Dev/Prod CI/CD, and object, row and column-level security with dynamic data masking.
+
+---
+
 # Aeropulse
 
 **End-to-end data engineering on Microsoft Fabric.** Airline on-time performance, from raw monthly CSV files to a governed reporting layer.
 
 Source data is the US Bureau of Transportation Statistics **Airline On-Time Performance Data**, specifically the *Reporting Carrier On-Time Performance (1987-present)* table, with the `L_AIRPORT` and `L_UNIQUE_CARRIERS` lookup tables as reference sources. It arrives monthly, messy, and inconsistent: missing delay-cause codes, cancelled flights that still carry departure times, airport and carrier reference data that shifts underneath you. Reprocessing it by hand does not scale, and silent failures are worse than loud ones because people keep trusting numbers that have quietly stopped being right.
+
 
 <!-- Rename docs/image to docs/architecture-overview.png, then uncomment:
 ![Aeropulse architecture](docs/architecture-overview.png)
@@ -75,17 +81,34 @@ Microsoft Fabric (Lakehouse, Warehouse, Data Factory pipelines, Data Activator),
 <details>
 <summary><b>1. Environment setup</b></summary>
 
-- **Microsoft Entra ID**: created a dedicated project user, granted Owner and a Fabric role.
-- **Resource group**: created to hold Fabric and any other Azure resources for this project.
-- **Fabric capacity**: provisioned, F4 SKU.
-- **Fabric workspace**: `aeropulse_dev`, attached to the F4 capacity.
-- **Lakehouses**: four created in `aeropulse_dev`, one per medallion layer:
-  - `aeropulse_landing_lh`
-  - `aeropulse_bronze_lh`
-  - `aeropulse_silver_lh`
-  - `aeropulse_gold_lh`
+Two of everything, provisioned before the first notebook was written.
 
-<!-- ![Workspace and lakehouses](docs/workspace-lakehouses.png) -->
+That ordering matters. Building in one workspace and splitting it later means going back through every notebook to pull out hardcoded paths. Starting with two forces the code to be parameterised from the first line, so nothing had to be rewritten when Production arrived.
+
+### What was provisioned
+
+| | Development | Production |
+|---|---|---|
+| Fabric workspace | `aeropulse_dev` | `aeropulse_prod` |
+| ADLS container | `flight-data` | `flight-data-prod` |
+| Lakehouses | `aeropulse_landing_lh`, `aeropulse_bronze_lh`, `aeropulse_silver_lh`, `aeropulse_gold_lh` | same four names |
+| Purpose | Where all development happens, connected to Azure DevOps | Destination only, never edited by hand, receives changes by deployment |
+
+Both workspaces sit on the same F4 capacity. A dedicated Microsoft Entra ID user owns the project, with a resource group holding the Fabric capacity and the storage account.
+
+### Why it is shaped this way
+
+**Dev develops, Prod receives.** `aeropulse_dev` is bound to Git and is the only place anything is authored. `aeropulse_prod` has no Git connection at all and is only ever changed by the deployment pipeline. That makes Production a destination rather than a second place to work, which is what stops the two drifting apart.
+
+**Two ADLS containers, same folder layout.** Prod reads genuinely different files through identical code. If both environments pointed at one container, a green run in Prod would only prove the code still ran, not that it worked on data it had never seen. The container is swapped by a deployment parameter rule, so the notebook itself does not know which environment it is in.
+
+**Item names are identical across environments.** `aeropulse_gold_lh` is called that in both workspaces, on purpose. It is why the Warehouse load procedure can reach Gold by three-part name with no environment-specific variant, and why the deployment rules only have to rebind, not rename.
+
+**Four lakehouses rather than one with four schemas.** Each medallion layer is its own Fabric item, so access can be granted per layer, each can be shared independently, and the deployment pipeline rebinds them one at a time. One lakehouse with four schemas would have collapsed all of that into a single permission boundary.
+
+**A dedicated Entra user with nothing inherited.** The project user holds only what it was granted. That is what makes the access testing in stage 9 mean anything, because every permission observed there was one someone deliberately gave.
+
+<!-- ![Dev and Prod workspaces](docs/dev-prod-workspaces.png) -->
 
 </details>
 
@@ -269,32 +292,38 @@ A Fabric Warehouse, `aeropulse_wh`, sitting on top of the Gold lakehouse and ser
 
 **Base tables:** `dim_date`, `dim_origin_airport`, `dim_destination_airport`, `dim_carrier`, `fact_flight`.
 
-**Analytics objects, and the business question each answers:**
+**Analytics objects, and the business question each answers.** Every object is one file, numbered by the order it has to be created in.
 
 | Object | Type | Business question |
 |---|---|---|
-| `vw_daily_flight_performance` | View | How many flights ran on a given day, what share arrived on time, and which origin airports performed worst |
-| `vw_carrier_monthly_otp` | View | How each carrier is tracking month on month against an 80% on-time target, and how they rank against each other |
-| `vw_route_performance` | View | Which routes are consistently late once volume is taken into account |
-| `vw_cancellation_analysis` | View | What is actually driving cancellations, by carrier, airport and month |
-| `usp_carrier_performance_summary` | Stored procedure | How a given carrier performed over any date range, and whether delay accumulates through the day |
-| `usp_refresh_monthly_summary` | Stored procedure | Rebuilds the pre-aggregated monthly carrier summary for one batch |
-| `usp_load_warehouse_from_gold` | Stored procedure | Reloads every Warehouse table from Gold |
-| `fn_departure_time_band` | Scalar function | Which part of the day a flight departed in |
-| `fn_flights_in_range` | Inline table-valued function | A joinable flight set for a given date range |
+| [`usp_load_warehouse_from_gold`](warehouse-analytics-query/02_usp_load_warehouse_from_gold.sql) | Stored procedure | Reloads every Warehouse table from Gold |
+| [`fn_departure_time_band`](warehouse-analytics-query/03_fn_departure_time_band.sql) | Scalar function | Which part of the day a flight departed in |
+| [`fn_flights_in_range`](warehouse-analytics-query/04_fn_flights_in_range.sql) | Inline table-valued function | A joinable flight set for a given date range |
+| [`vw_daily_flight_performance`](warehouse-analytics-query/05_vw_daily_flight_performance.sql) | View | How many flights ran on a given day, what share arrived on time, and which origin airports performed worst |
+| [`vw_carrier_monthly_otp`](warehouse-analytics-query/06_vw_carrier_monthly_otp.sql) | View | How each carrier is tracking month on month against an 80% on-time target, and how they rank against each other |
+| [`vw_route_performance`](warehouse-analytics-query/07_vw_route_performance.sql) | View | Which routes are consistently late once volume is taken into account |
+| [`vw_cancellation_analysis`](warehouse-analytics-query/08_vw_cancellation_analysis.sql) | View | What is actually driving cancellations, by carrier, airport and month |
+| [`monthly_carrier_summary`](warehouse-analytics-query/09_monthly_carrier_summary.sql) | Table | Pre-aggregated monthly carrier figures, so the common question does not rescan the fact table |
+| [`usp_refresh_monthly_summary`](warehouse-analytics-query/10_usp_refresh_monthly_summary.sql) | Stored procedure | Rebuilds that summary for one batch |
+| [`usp_carrier_performance_summary`](warehouse-analytics-query/11_usp_carrier_performance_summary.sql) | Stored procedure | How a given carrier performed over any date range, and whether delay accumulates through the day |
 
 ### How it was built
 
-**Build scripts, numbered by run order.** The order is not arbitrary: functions must exist before the views and procedures that call them.
+**One object per file, numbered by run order.** The order is not decorative. Functions must exist before the views and procedures that call them, and the summary table before the procedure that refreshes it. Running the folder top to bottom builds the Warehouse from nothing.
 
-| Script | Creates |
+| File | Creates |
 |---|---|
-| `01_create_schema_and_tables.sql` | `analytics` schema, five base tables in `dbo` |
-| `02_create_and_load_stored_proc.sql` | `usp_load_warehouse_from_gold`, then runs it |
-| `03_create_functions.sql` | Both functions |
-| `04_create_views.sql` | Four analytics views |
-| `05_create_summary_table_and_refresh.sql` | `monthly_carrier_summary` and its refresh procedure |
-| `06_create_reporting_stored_proc.sql` | `usp_carrier_performance_summary` |
+| [`01_create_schema_and_tables.sql`](warehouse-analytics-query/01_create_schema_and_tables.sql) | `analytics` schema and the five base tables in `dbo` |
+| [`02_usp_load_warehouse_from_gold.sql`](warehouse-analytics-query/02_usp_load_warehouse_from_gold.sql) | The load procedure, then runs it |
+| [`03_fn_departure_time_band.sql`](warehouse-analytics-query/03_fn_departure_time_band.sql) | Scalar function, needed by the views below |
+| [`04_fn_flights_in_range.sql`](warehouse-analytics-query/04_fn_flights_in_range.sql) | Inline table-valued function |
+| [`05_vw_daily_flight_performance.sql`](warehouse-analytics-query/05_vw_daily_flight_performance.sql) | Daily performance view |
+| [`06_vw_carrier_monthly_otp.sql`](warehouse-analytics-query/06_vw_carrier_monthly_otp.sql) | Carrier on-time tracking view |
+| [`07_vw_route_performance.sql`](warehouse-analytics-query/07_vw_route_performance.sql) | Route reliability view |
+| [`08_vw_cancellation_analysis.sql`](warehouse-analytics-query/08_vw_cancellation_analysis.sql) | Cancellation driver view |
+| [`09_monthly_carrier_summary.sql`](warehouse-analytics-query/09_monthly_carrier_summary.sql) | Pre-aggregated summary table |
+| [`10_usp_refresh_monthly_summary.sql`](warehouse-analytics-query/10_usp_refresh_monthly_summary.sql) | Summary refresh procedure |
+| [`11_usp_carrier_performance_summary.sql`](warehouse-analytics-query/11_usp_carrier_performance_summary.sql) | Parameterised carrier reporting procedure |
 
 **Tables are created with explicit DDL** rather than CTAS, and loaded with TRUNCATE and INSERT. CTAS drops and recreates a table on every reload, taking any GRANT, RLS policy or masking rule with it. Defining tables once and reloading their contents means the security objects added in stage 9 survive every refresh, which is why `cancellation_code` was added by `ALTER TABLE` rather than a rebuild.
 
@@ -320,6 +349,8 @@ A view takes no parameters, so "how did this carrier do between these two dates"
 
 Splitting `dbo` from `analytics` sets up least privilege: the next stage grants on `analytics` and withholds `dbo`, so consumers reach the data only through governed views and never the raw fact table. Object-level security falls out of the structure rather than being retrofitted onto a flat schema.
 
+📁 [`warehouse-analytics-query/`](warehouse-analytics-query/)
+
 </details>
 
 <a id="9-security"></a>
@@ -333,7 +364,6 @@ Two test identities in Microsoft Entra ID, created with no directory role and no
 | User | Purpose |
 |---|---|
 | `aeropulse-bi-analyst` | Analyst persona used to test item sharing, workspace roles and granular SQL security |
-| `aeropulse-operation-analyst` | Second identity for comparison testing |
 
 Access was then exercised at every layer Fabric exposes, from tenant down to individual column and row.
 
@@ -348,7 +378,9 @@ Access was then exercised at every layer Fabric exposes, from tenant down to ind
 
 Fabric Administrator is assigned as an Entra ID directory role. Capacity Administrator is assigned either in the Fabric admin portal or on the capacity resource in Azure.
 
+Capacity administrator access
 ![Capacity administrator access](docs/capacity-admin-access.png)
+Domain access management
 ![Domain access management](docs/domain-access-management.png)
 
 ### Workspace roles, observed behaviour
@@ -359,8 +391,15 @@ Fabric Administrator is assigned as an Entra ID directory role. Capacity Adminis
 | Contributor | Query the SQL endpoint, run notebooks, read tables and files, run the orchestration pipeline. Could not add other users |
 | Member | Everything Contributor can do, plus adding other users |
 
+Workspace access, view
+![Workspace access, view](docs/workspace-level-access-view.png)
+
+Workspace access, Contributor
 ![Workspace access, Contributor](docs/workspace-level-access-contributor.png)
+
+Workspace access, Member
 ![Workspace access, Member](docs/workspace-level-access-member.png)
+
 
 ### Item-level sharing on the gold lakehouse
 
@@ -371,8 +410,13 @@ Fabric Administrator is assigned as an Entra ID directory role. Capacity Adminis
 | Read all Apache Spark and subscribe to events | Reads delta tables through Spark notebooks, grants raw file access, enables event subscriptions and shortcuts |
 | Execute Apache Spark jobs | Does not enable querying. Appears to exist for scheduling jobs rather than reading data |
 
+Read all SQL endpoint data
 ![Read all SQL endpoint data](docs/read-all-sql-endpoint-data.png)
+
+Read all Apache Spark and subscribe to events
 ![Read all Apache Spark and subscribe to events](docs/read-all-apache-spark-and-subscribe-to-events.png)
+
+Execute Apache Spark jobs on the lakehouse
 ![Execute Apache Spark jobs on the lakehouse](docs/execute-apache-spark-Jobs-on-akehouse.png)
 
 ### Object-level security
@@ -388,7 +432,10 @@ REVOKE SELECT ON <schema>.<table> TO [user];
 
 Sharing the Warehouse with no additional item permissions left the user unable to read any table. Access appeared only as each `GRANT` was issued.
 
+Warehouse access management query
 ![Warehouse access management query](docs/query-for-warehouse-access-management.png)
+
+Object-level security granted
 ![Object-level security granted](docs/grant-ols.png)
 
 ### Column-level security
@@ -407,8 +454,13 @@ Msg 230: The SELECT permission was denied on the column 'salary' of the object '
 
 `REVOKE` on `department` then produced the same error for that column, confirming that revoking clears a permission rather than granting or denying one: the column returned to its default state, which is no access.
 
+Column-level security, salary excluded
 ![Column-level security, salary excluded](docs/grant-cls-without-salary.png)
+
+Column-level security, salary included
 ![Column-level security, salary included](docs/grant-cls-with-salary.png)
+
+Revoking access to the department column
 ![Revoking access to the department column](docs/revoke-access-to-column-department.png)
 
 ### Row-level security
@@ -435,7 +487,10 @@ WITH (STATE = ON);
 
 The mapping table tied the analyst to the north region. Querying `sales` as that user returned only north rows, with no filter in the query itself.
 
+Row-level security policy
 ![Row-level security policy](docs/rls-north.png)
+
+Sales table filtered to the north region
 ![Sales table filtered to the north region](docs/sales-rls-north.png)
 
 ### Dynamic data masking
@@ -456,11 +511,22 @@ GRANT  UNMASK ON <schema>.<table> TO [user];
 REVOKE UNMASK ON <schema>.<table> TO [user];
 ```
 
+Dynamic data masking query
 ![Dynamic data masking query](docs/dynamic-data-masking-query.png)
+
+Masked output as a user without elevated privilege
 ![Masked output as a user without elevated privilege](docs/dynamic-masking-user-without-elevated-priviledge.png)
+
+Altering a mask on an existing column
 ![Altering a mask on an existing column](docs/altering-dynamic-masking.png)
+
+Dropping a mask
 ![Dropping a mask](docs/drop-dynamic-masking.png)
+
+Granting UNMASK
 ![Granting UNMASK](docs/unmasking-dynamic%20masking.png)
+
+Revoking UNMASK
 ![Revoking UNMASK](docs/revoke-dynamic-masking.png)
 
 **Testing method.** Every permission was verified by signing in as the test user and running the same query, rather than by inspecting the configuration. The admin account sees unmasked values throughout, so masking can only be confirmed from a non-privileged session. The `random()` function returned a different value on each execution, which is visible across repeated runs.
@@ -593,17 +659,28 @@ Two things came out of this. Any step that exists only as something a person rem
 ## Repository layout
 
 ```
-adls-to-landing/          config, helper, three ingestion notebooks
-landing-to-bronze/        config, helper, three landing to bronze notebooks
-bronze-to-silver/         config, helper, profiling, three bronze to silver notebooks
-silver-to-gold/           config, helper, four dimensions, one fact
-orchestration-control/    control table plus four state transition notebooks
-docs/                     screenshots and diagrams
+adls-to-landing/            config, helper, three ingestion notebooks
+landing-to-bronze/          config, helper, three landing to bronze notebooks
+bronze-to-silver/           config, helper, profiling, three bronze to silver notebooks
+silver-to-gold/             config, helper, four dimensions, one fact
+orchestration-control/      control table plus four state transition notebooks
+warehouse-analytics-query/  eleven T-SQL files, one object each, numbered by run order
+docs/                       screenshots and diagrams
 LICENSE
 README.md
 ```
 
+Folder names mirror the medallion hops, so the shape of the pipeline is visible from the tree without reading any code. Inside `warehouse-analytics-query/` the numbers are the dependency order, not a filing convention: functions before the views that call them, the summary table before the procedure that refreshes it.
 
 ---
 
+not sure why the data-lineage.svg, dimensional-model.svg, medallion-layer-flow.svg is not attaching to this, however, as i have them already in github, attach it to the right section
 
+
+
+
+
+
+
+
+---
