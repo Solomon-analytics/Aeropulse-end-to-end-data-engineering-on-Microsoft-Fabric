@@ -82,17 +82,34 @@ Microsoft Fabric (Lakehouse, Warehouse, Data Factory pipelines, Data Activator),
 <details>
 <summary><b>1. Environment setup</b></summary>
 
-- **Microsoft Entra ID**: created a dedicated project user, granted Owner and a Fabric role.
-- **Resource group**: created to hold Fabric and any other Azure resources for this project.
-- **Fabric capacity**: provisioned, F4 SKU.
-- **Fabric workspace**: `aeropulse_dev`, attached to the F4 capacity.
-- **Lakehouses**: four created in `aeropulse_dev`, one per medallion layer:
-  - `aeropulse_landing_lh`
-  - `aeropulse_bronze_lh`
-  - `aeropulse_silver_lh`
-  - `aeropulse_gold_lh`
+Two of everything, provisioned before the first notebook was written.
 
-<!-- ![Workspace and lakehouses](docs/workspace-lakehouses.png) -->
+That ordering matters. Building in one workspace and splitting it later means going back through every notebook to pull out hardcoded paths. Starting with two forces the code to be parameterised from the first line, so nothing had to be rewritten when Production arrived.
+
+### What was provisioned
+
+| | Development | Production |
+|---|---|---|
+| Fabric workspace | `aeropulse_dev` | `aeropulse_prod` |
+| ADLS container | `flight-data` | `flight-data-prod` |
+| Lakehouses | `aeropulse_landing_lh`, `aeropulse_bronze_lh`, `aeropulse_silver_lh`, `aeropulse_gold_lh` | same four names |
+| Purpose | Where all development happens, connected to Azure DevOps | Destination only, never edited by hand, receives changes by deployment |
+
+Both workspaces sit on the same F4 capacity. A dedicated Microsoft Entra ID user owns the project, with a resource group holding the Fabric capacity and the storage account.
+
+### Why it is shaped this way
+
+**Dev develops, Prod receives.** `aeropulse_dev` is bound to Git and is the only place anything is authored. `aeropulse_prod` has no Git connection at all and is only ever changed by the deployment pipeline. That makes Production a destination rather than a second place to work, which is what stops the two drifting apart.
+
+**Two ADLS containers, same folder layout.** Prod reads genuinely different files through identical code. If both environments pointed at one container, a green run in Prod would only prove the code still ran, not that it worked on data it had never seen. The container is swapped by a deployment parameter rule, so the notebook itself does not know which environment it is in.
+
+**Item names are identical across environments.** `aeropulse_gold_lh` is called that in both workspaces, on purpose. It is why the Warehouse load procedure can reach Gold by three-part name with no environment-specific variant, and why the deployment rules only have to rebind, not rename.
+
+**Four lakehouses rather than one with four schemas.** Each medallion layer is its own Fabric item, so access can be granted per layer, each can be shared independently, and the deployment pipeline rebinds them one at a time. One lakehouse with four schemas would have collapsed all of that into a single permission boundary.
+
+**A dedicated Entra user with nothing inherited.** The project user holds only what it was granted. That is what makes the access testing in stage 9 mean anything, because every permission observed there was one someone deliberately gave.
+
+<!-- ![Dev and Prod workspaces](docs/dev-prod-workspaces.png) -->
 
 </details>
 
@@ -622,6 +639,10 @@ README.md
 Folder names mirror the medallion hops, so the shape of the pipeline is visible from the tree without reading any code. Inside `warehouse-analytics-query/` the numbers are the dependency order, not a filing convention: functions before the views that call them, the summary table before the procedure that refreshes it.
 
 ---
+
+
+
+
 
 
 
