@@ -612,9 +612,4 @@ Folder names mirror the medallion hops, so the shape of the pipeline is visible 
 
 ---
 
-## Project 1
-
-**Aeropulse: ADLS to Gold** builds the foundation this repository extends: one Fabric workspace, the medallion architecture, and the dimensional model.
-
-Together the two cover DP-700 Domain 1 (Implement and Manage an Analytics Solution) and Domain 3 (Monitor and Optimize).
 
