@@ -1,11 +1,13 @@
 # Aeropulse-end-to-end-data-engineering-on-Microsoft-Fabric
-End-to-end data engineering on Microsoft Fabric. Medallion lakehouse, dimensional warehouse, control-table orchestration with automated batch recovery, Dev/Prod CI/CD, and object, row and column-level security with dynamic data masking.
+
 
 ---
 
 # Aeropulse
 
 **End-to-end data engineering on Microsoft Fabric.** Airline on-time performance, from raw monthly CSV files to a governed reporting layer.
+
+End-to-end data engineering on Microsoft Fabric. Medallion lakehouse, dimensional warehouse, control-table orchestration with automated batch recovery, Dev/Prod CI/CD, and object, row and column-level security with dynamic data masking.
 
 I built this to work the way a platform has to work in practice. It picks up its own next batch, refuses data that does not match its contract, recovers from a failure without anyone reprocessing by hand, and ships from Dev to Prod through a deployment pipeline. 49.4 million flight records across 90 monthly batches, four lakehouses, a dimensional warehouse, and a security model I tested as a non-admin user rather than by reading the config back.
 
@@ -713,8 +715,6 @@ docs/                       screenshots and diagrams
 LICENSE
 README.md
 ```
-
-
 
 ---
 
