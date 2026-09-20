@@ -581,25 +581,30 @@ Counts do not reconcile the same way at every hop, and pretending they do is how
 
 Landing to bronze, 49,414,764 flight rows straight through:
 
-![Landing to bronze row counts](docs/test-landing-to-bronze.png)
+[Landing to bronze row counts
+![Landing to bronze row counts](docs/validation-reconciliation-test-referential-imtegrity.png)
 
 Silver to gold, with `dim_destination_airport` reconciled against the distinct destination codes in silver flight rather than against silver airport, because that is where it is built from:
 
-![Silver to gold row counts](docs/test-silver-to-gold.png)
+Silver to gold row counts
+![Silver to gold row counts](docs/validation-reconciliation-test-data-completeness.png)
 
 That middle hop is the one usually fudged as "silver is smaller, looks about right". The shrinkage is calculable, so I check it exactly.
 
 **Every batch reached every layer.** A batch that ran halfway and stopped is invisible to a row count, because the remaining batches still add up to something plausible. 90 in bronze, 90 in silver, 90 in gold.
 
-![Batch completeness across layers](docs/test-batch-completeness.png)
+Batch completeness across layers
+![Batch completeness across layers](docs/validation-reconciliation-test-batch-completeness.png)
 
 **Surrogate keys are unique.** A duplicate key silently fans out every downstream join and inflates every measure built on it.
 
-![Surrogate key uniqueness](docs/test-surrogate-key-uniqueness.png)
+Surrogate key uniqueness
+![Surrogate key uniqueness](docs/validation-reconciliation-test-sk-uniqueness.png)
 
 **Derived rules still agree with the data they came from.** `is_delayed` is tested against the 15 minute arrival delay rule it was built from, the cancellation flag against the cancellation code, and `total_delay_minutes` against ever being negative. Row counts and key integrity both pass happily while business logic has quietly drifted.
 
-![Derived business rules](docs/test-derived-business-rules.png)
+Derived business rules
+![Derived business rules](docs/validation-reconciliation-test-data-sanity-check.png)
 
 Also checked: referential integrity from the fact to every dimension, date keys resolving against the generated calendar, lineage columns surviving into bronze, and dimensions not being empty. That last one is the check that would have caught the empty `dim_carrier` that reached Production earlier in this project.
 
