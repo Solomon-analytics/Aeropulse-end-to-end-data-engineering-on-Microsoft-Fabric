@@ -378,7 +378,18 @@ A test identity in Microsoft Entra ID, created with no directory role and no Azu
 |---|---|
 | `aeropulse-bi-analyst` | Analyst persona used to test item sharing, workspace roles and granular SQL security |
 
-I then worked through every layer Fabric exposes, from tenant down to individual column and row.
+I then worked through every layer Fabric exposes, from tenant down to individual column and row. Two of those layers were exercised on different things, and it is worth being plain about which is which:
+
+| Demonstrated on | Layers |
+|---|---|
+| The real Aeropulse items | Tenant, capacity and domain administration, workspace roles, item-level sharing on `aeropulse_gold_lh` and `aeropulse_wh` |
+| A purpose-built `access_management` schema inside `aeropulse_wh` | Object, column and row-level security, and dynamic data masking |
+
+**Why the granular SQL security sits in its own schema.** Airline on-time performance data carries nothing that masking would legitimately hide. There is no email address, no salary, no card number. Row-level security needs a concept of row ownership, and a flight belongs to a carrier rather than to a person, so proving RLS on `fact_flight` would have meant inventing a user mapping the model has no use for. Bending a clean star schema to carry fake personal data in order to make a security point would have damaged the better part of the project to decorate the other.
+
+So I built a small `access_management` schema in the same Warehouse, with `employees`, `sales` and a `user_region` mapping table, sized so a whole result set fits in one screenshot. The Warehouse, the identity and the sharing behaviour are all real. Only the tables under test are synthetic, and I would rather say that than imply coverage I do not have. What it would take to apply the same patterns to the Aeropulse data is at the end of this section.
+
+That leaves `aeropulse_wh` with three schemas: `dbo` for the base tables, `analytics` for the consumer surface, and `access_management` for this work.
 
 ### Administrative layers
 
@@ -399,6 +410,8 @@ Domain access management
 
 ### Workspace roles, observed behaviour
 
+Tested against `aeropulse_dev` itself, so what the table records is what the analyst could actually reach in the working project.
+
 | Role | What the user could actually do |
 |---|---|
 | Viewer | Read notebooks and pipeline activities. Could not view lakehouse tables or files |
@@ -417,6 +430,8 @@ Workspace access, Member
 
 ### Item-level sharing on the gold lakehouse
 
+On `aeropulse_gold_lh`, the real one, with the dimensions and fact built in stage 5.
+
 | Permission | Effect |
 |---|---|
 | Share with no additions | Opens the lakehouse and SQL endpoint, connects via SSMS, reads the default semantic model. No file access. Granular SQL security then layers on top |
@@ -432,6 +447,21 @@ Read all Apache Spark and subscribe to events
 
 Execute Apache Spark jobs on the lakehouse
 ![Execute Apache Spark jobs on the lakehouse](docs/execute-apache-spark-Jobs-on-akehouse.png)
+
+### The access_management schema
+
+Everything from here to the end of the section runs against tables I created by hand in `aeropulse_wh` for this purpose, not against the Aeropulse model:
+
+| Table | Columns that matter | Used to demonstrate |
+|---|---|---|
+| `employees` | `emp_id`, `full_name`, `department`, `salary` | Object and column-level security |
+| `sales` | `region`, plus sales measures | Row-level security |
+| `user_region` | `user_email`, `region` | The mapping the RLS predicate reads |
+| the masking table | `email_address`, `credit_card_number`, `random_number`, `salary` | Dynamic data masking, one column per masking function |
+
+Small tables on purpose. When the whole result set fits on screen, a screenshot is proof rather than an excerpt, and the difference between a masked and an unmasked value is visible at a glance.
+
+The Warehouse they sit in is the real one, so the sharing behaviour described below is genuine: sharing `aeropulse_wh` with no additional item permissions locks a user out of every schema in it, including `dbo` and `analytics`.
 
 ### Object-level security
 
@@ -457,7 +487,7 @@ Object-level security granted
 Same statements, scoped to a column list:
 
 ```sql
-GRANT SELECT ON <schema>.employees (emp_id, full_name, department) TO [user];
+GRANT SELECT ON access_management.employees (emp_id, full_name, department) TO [user];
 ```
 
 I left `salary` out. Querying it returned:
@@ -525,6 +555,8 @@ GRANT  UNMASK ON <schema>.<table> TO [user];
 REVOKE UNMASK ON <schema>.<table> TO [user];
 ```
 
+One column per masking function, so each behaves differently in the same result set and the comparison is direct.
+
 Dynamic data masking query
 ![Dynamic data masking query](docs/dynamic-data-masking-query.png)
 
@@ -544,6 +576,18 @@ Revoking UNMASK
 ![Revoking UNMASK](docs/revoke-dynamic-masking.png)
 
 **Testing method.** I verified every permission by signing in as the test user and running the same query, rather than by inspecting the configuration. The admin account sees unmasked values throughout, so masking can only be confirmed from a non-privileged session. The `random()` function returned a different value on each execution, which is visible across repeated runs.
+
+### Applying this to the Aeropulse warehouse
+
+Being explicit about what is demonstrated rather than deployed is only half the answer. This is the other half.
+
+**Object-level security is already in place on the real data**, and it did not need retrofitting. Stage 8 splits `aeropulse_wh` into `dbo` and `analytics` precisely so that a consumer can be granted `analytics` and refused `dbo`. They reach the figures through governed views and never the raw fact table. That is object-level security doing its job on Aeropulse, not on a demonstration table.
+
+**Row-level security has one obvious predicate: the carrier.** A `user_carrier` mapping against `dim_carrier.carrier_code`, one inline table-valued function and one security policy on `fact_flight`, and an airline's own analyst sees only their own flights while the regulator view stays whole. Same shape as the `sales` example above, pointed at a column that already exists. It is the change I would make first if this model were serving more than one audience.
+
+**Column-level security and masking have no candidate columns today.** Nothing in the star schema is personal or commercially sensitive. Adding crew rosters, passenger manifests or contracted rates would change that immediately, and the patterns are ready for it. Applying masking now would be governance theatre on public data.
+
+**Masking would not be the control I reach for anyway.** It is not a security boundary, as the note below explains, so on real sensitive data it would sit on top of the column and row controls rather than in place of them.
 
 ### Why
 
