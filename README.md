@@ -579,15 +579,20 @@ Counts do not reconcile the same way at every hop, and pretending they do is how
 | Bronze to silver | Silver equals the distinct non-null grain in bronze | Silver dedupes and drops null keys, so it can only shrink, and by a knowable amount |
 | Silver to gold | Exactly equal | The dimension joins should not drop facts |
 
-Landing to bronze, 49,414,764 flight rows straight through:
+**Landing to bronze.** 49,414,764 flight rows straight through, alongside 6,818 airports and 1,751 carriers.
 
-[Landing to bronze row counts
-![Landing to bronze row counts](docs/validation-reconciliation-test-referential-imtegrity.png)
+![Landing to bronze row counts](docs/validation-reconciliation-test-data-completeness.png)
 
-Silver to gold, with `dim_destination_airport` reconciled against the distinct destination codes in silver flight rather than against silver airport, because that is where it is built from:
+**Bronze to silver, and the 65 rows that do not make it.** Bronze holds 49,414,764 flight rows. Silver and Gold both hold 49,414,699. That 65 row gap is the only place in the chain where the count is allowed to move, which makes it the hop the test has to be most precise about.
+
+Those 65 rows have a null in one of the columns that make up the flight grain. With no grain there is nothing stable to hash, so `add_sk_key` returns a null `flight_sk`. A row without a key cannot be joined to a dimension, cannot be deduplicated reliably and cannot be merged idempotently on a re-run, so Silver drops it rather than carrying a fact that nothing downstream can reference.
+
+The part that matters is that 65 is a number I can derive rather than a discrepancy I have to accept. The check counts the distinct non-null flight grain in bronze and asserts silver matches it exactly. If that figure moves next month, the notebook fails and I go and find out why, instead of noticing six months later that a report has been quietly out by a rounding error's worth of flights.
+
+**Silver to gold.** Exactly equal, 49,414,699 on both sides. `dim_destination_airport` is reconciled against the distinct destination codes in silver flight rather than against silver airport, because that is where it is built from. Reconciling it against the airport reference table would compare two things that were never meant to match.
 
 Silver to gold row counts
-![Silver to gold row counts](docs/validation-reconciliation-test-data-completeness.png)
+![Silver to gold row counts](docs/validation-reconciliation-test-referential-imtegrity.png)
 
 That middle hop is the one usually fudged as "silver is smaller, looks about right". The shrinkage is calculable, so I check it exactly.
 
